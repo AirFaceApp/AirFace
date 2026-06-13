@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AirFace – Connecting</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #111; color: #fff;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      min-height: 100vh; padding: 20px; text-align: center;
+    }
+    .icon { font-size: 48px; margin-bottom: 20px; }
+    h2   { font-size: 20px; margin-bottom: 8px; }
+    p    { font-size: 14px; color: #888; line-height: 1.5; }
+    .error h2 { color: #ff6b6b; }
+    .success .icon { animation: pop .3s ease; }
+    @keyframes pop {
+      0%   { transform: scale(0.5); opacity: 0; }
+      80%  { transform: scale(1.15); }
+      100% { transform: scale(1);   opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+  <div class="icon" id="icon">⏳</div>
+  <h2 id="heading">Connecting…</h2>
+  <p id="msg">Exchanging authorization code with Google Health.</p>
+
+  <script>
+    // URL of the Cloudflare Worker that holds the client secret.
+    // Set WORKER_URL in src/pkjs/config.js — this page reads it from
+    // localStorage so it never appears in public source code.
+    var WORKER_URL = localStorage.getItem('airface_worker_url') ||
+                     'https://airface-worker.james-m-brock.workers.dev';
+
+    function showError(text) {
+      document.body.className = 'error';
+      document.getElementById('icon').textContent = '✕';
+      document.getElementById('heading').textContent = 'Connection failed';
+      document.getElementById('msg').textContent = text;
+    }
+
+    function showSuccess() {
+      document.body.className = 'success';
+      document.getElementById('icon').textContent = '✓';
+      document.getElementById('heading').textContent = 'Connected!';
+      document.getElementById('msg').textContent = 'Returning to your watch…';
+    }
+
+    async function handleCallback() {
+      var params   = new URLSearchParams(window.location.search);
+      var code     = params.get('code');
+      var error    = params.get('error');
+
+      if (error || !code) {
+        showError('Authorization denied: ' + (error || 'no code returned'));
+        return;
+      }
+
+      var codeVerifier = localStorage.getItem('airface_code_verifier');
+      if (!codeVerifier) {
+        showError('Session expired — please try connecting again.');
+        return;
+      }
+      localStorage.removeItem('airface_code_verifier');
+
+      if (!WORKER_URL) {
+        showError('Worker URL not configured. Check PKJS config.');
+        return;
+      }
+
+      try {
+        var resp = await fetch(WORKER_URL + '/exchange', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: code, code_verifier: codeVerifier })
+        });
+
+        if (!resp.ok) throw new Error('Worker returned ' + resp.status);
+        var tokens = await resp.json();
+
+        if (!tokens.refresh_token) {
+          throw new Error('No refresh token — re-authorize with prompt=consent');
+        }
+
+        showSuccess();
+
+        // Desktop browser (not a Pebble webview). The token is only revealed
+        // when a developer explicitly opts in — run
+        //   localStorage.setItem('airface_dev', '1')
+        // in the console before connecting. Otherwise no secret is shown.
+        var isPebble = navigator.userAgent.indexOf('Pebble') !== -1 ||
+                       window.location.href.indexOf('pebble') !== -1;
+        if (!isPebble) {
+          if (localStorage.getItem('airface_dev') === '1') {
+            document.getElementById('msg').innerHTML =
+              '<small style="word-break:break-all;font-family:monospace;font-size:11px;color:#4caf50">' +
+              'DEV — refresh token:<br>' + tokens.refresh_token + '</small>';
+          } else {
+            document.getElementById('msg').textContent =
+              'Open AirFace from the Pebble app to finish connecting.';
+          }
+          return;
+        }
+
+        // Pass refresh token back to PKJS via the Pebble close URL scheme.
+        setTimeout(function() {
+          window.location = 'pebblejs://close#' +
+            encodeURIComponent(JSON.stringify({ refresh_token: tokens.refresh_token }));
+        }, 800);
+
+      } catch (e) {
+        showError(e.message);
+      }
+    }
+
+    handleCallback();
+  </script>
+</body>
+</html>

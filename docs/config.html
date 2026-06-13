@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AirFace Setup</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #111; color: #fff;
+      padding: 32px 20px 48px;
+      max-width: 420px; margin: 0 auto;
+    }
+    h1 { font-size: 24px; font-weight: 700; margin-bottom: 4px; }
+    .subtitle { font-size: 13px; color: #666; margin-bottom: 28px; }
+    .status-badge {
+      display: inline-flex; align-items: center; gap: 7px;
+      font-size: 14px; margin-bottom: 20px;
+      padding: 7px 14px; border-radius: 20px;
+      background: #1e1e1e;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; }
+    .dot.green { background: #4caf50; }
+    .dot.grey  { background: #555; }
+    button {
+      width: 100%; padding: 15px;
+      border: none; border-radius: 10px;
+      font-size: 16px; font-weight: 600;
+      cursor: pointer; margin-bottom: 12px;
+      transition: opacity .15s;
+    }
+    button:active { opacity: .75; }
+    #connect-btn    { background: #4285f4; color: #fff; }
+    #disconnect-btn { background: #1e1e1e; color: #ff6b6b; display: none; }
+    #save-btn       { background: #4caf50; color: #fff; margin-top: 8px; }
+    .note { font-size: 12px; color: #555; text-align: center; line-height: 1.5; margin-top: 8px; }
+
+    .section-title {
+      font-size: 12px; text-transform: uppercase; letter-spacing: .08em;
+      color: #888; margin: 28px 0 12px;
+    }
+    .field {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 0; border-bottom: 1px solid #222;
+    }
+    .field label { font-size: 15px; color: #ddd; }
+    .field .accent { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 8px; vertical-align: middle; }
+    .acc-steps { background: #4caf50; }
+    .acc-zone  { background: #ffeb3b; }
+    .acc-cal   { background: #ff9800; }
+    .acc-sleep { background: #29b6f6; }
+    .field input[type=number], .field select {
+      width: 120px; padding: 9px 10px;
+      background: #1e1e1e; color: #fff;
+      border: 1px solid #333; border-radius: 8px;
+      font-size: 15px; text-align: right;
+    }
+    .field select { text-align: left; }
+  </style>
+</head>
+<body>
+  <h1>AirFace</h1>
+  <p class="subtitle">Pebble Round 2 · Google Health</p>
+
+  <div class="status-badge">
+    <span class="dot" id="dot"></span>
+    <span id="status-text">Checking...</span>
+  </div>
+
+  <button id="connect-btn">Connect Google Health</button>
+  <button id="disconnect-btn">Disconnect</button>
+
+  <div class="section-title">Daily goals</div>
+  <div class="field">
+    <label><span class="accent acc-steps"></span>Steps</label>
+    <input type="number" id="stepsGoal" min="1000" max="100000" step="500">
+  </div>
+  <div class="field">
+    <label><span class="accent acc-zone"></span>Zone minutes</label>
+    <input type="number" id="zoneGoal" min="5" max="300" step="1">
+  </div>
+  <div class="field">
+    <label><span class="accent acc-cal"></span>Active calories</label>
+    <input type="number" id="calGoal" min="100" max="5000" step="50">
+  </div>
+  <div class="field">
+    <label><span class="accent acc-sleep"></span>Sleep (hours)</label>
+    <input type="number" id="sleepGoal" min="4" max="12" step="1">
+  </div>
+
+  <div class="section-title">Display</div>
+  <div class="field">
+    <label>Distance units</label>
+    <select id="units">
+      <option value="0">Miles</option>
+      <option value="1">Kilometers</option>
+    </select>
+  </div>
+  <div class="field">
+    <label>Heart rate</label>
+    <select id="hrMode">
+      <option value="0">Resting</option>
+      <option value="1">Daily average</option>
+      <option value="2">Daily min–max</option>
+    </select>
+  </div>
+  <div class="field">
+    <label>Update every</label>
+    <select id="updateMin">
+      <option value="10">10 min</option>
+      <option value="15">15 min</option>
+      <option value="30">30 min</option>
+      <option value="60">60 min</option>
+    </select>
+  </div>
+  <div class="field">
+    <label>Background</label>
+    <select id="bgStyle">
+      <option value="0">Black</option>
+      <option value="1">Navy</option>
+    </select>
+  </div>
+  <div class="field">
+    <label>Color theme</label>
+    <select id="colorTheme">
+      <option value="0">Color</option>
+      <option value="1">Monochrome (teal)</option>
+    </select>
+  </div>
+  <div class="field">
+    <label>Time format</label>
+    <select id="timeFormat">
+      <option value="0">Auto (system)</option>
+      <option value="1">12-hour</option>
+      <option value="2">24-hour</option>
+    </select>
+  </div>
+
+  <button id="save-btn">Save settings</button>
+  <p class="note">
+    AirFace requests read-only access to your steps,<br>
+    heart rate, sleep, calories, distance, and zone minutes.
+  </p>
+
+  <script>
+    var CLIENT_ID    = '1088228830683-ooiegal7q06otkh0bj5n9jeqvqgc8c12.apps.googleusercontent.com';
+    var REDIRECT_URI = 'https://airfaceapp.github.io/oauth/callback.html';
+    var SCOPES = [
+      'https://www.googleapis.com/auth/googlehealth.activity_and_fitness.readonly',
+      'https://www.googleapis.com/auth/googlehealth.health_metrics_and_measurements.readonly',
+      'https://www.googleapis.com/auth/googlehealth.sleep.readonly'
+    ].join(' ');
+
+    var DEFAULTS = {
+      stepsGoal: 10000, zoneGoal: 22, calGoal: 600, sleepGoal: 8,
+      units: 0, hrMode: 0, updateMin: 15, bgStyle: 0, timeFormat: 0, colorTheme: 0
+    };
+
+    var dot           = document.getElementById('dot');
+    var statusText    = document.getElementById('status-text');
+    var connectBtn    = document.getElementById('connect-btn');
+    var disconnectBtn = document.getElementById('disconnect-btn');
+    var saveBtn       = document.getElementById('save-btn');
+
+    var params = new URLSearchParams(window.location.search);
+
+    // ── Connection status ──────────────────────────────────────────────────────
+    if (params.get('connected') === '1') {
+      dot.className = 'dot green';
+      statusText.textContent = 'Connected to Google Health';
+      connectBtn.style.display = 'none';
+      disconnectBtn.style.display = 'block';
+    } else {
+      dot.className = 'dot grey';
+      statusText.textContent = 'Not connected';
+    }
+
+    // ── Prefill settings from the values PKJS passed in the URL ─────────────────
+    function fieldVal(id) { return document.getElementById(id); }
+    Object.keys(DEFAULTS).forEach(function(key) {
+      var v = params.get(key);
+      if (v === null || v === '') v = DEFAULTS[key];
+      fieldVal(key).value = v;
+    });
+
+    // ── PKCE helpers ────────────────────────────────────────────────────────────
+    function generateVerifier() {
+      var arr = new Uint8Array(96);
+      crypto.getRandomValues(arr);
+      return btoa(String.fromCharCode.apply(null, arr))
+        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+    }
+    function generateChallenge(verifier) {
+      var data = new TextEncoder().encode(verifier);
+      return crypto.subtle.digest('SHA-256', data).then(function(digest) {
+        return btoa(String.fromCharCode.apply(null, new Uint8Array(digest)))
+          .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+      });
+    }
+
+    // ── Connect ─────────────────────────────────────────────────────────────────
+    connectBtn.addEventListener('click', function() {
+      var verifier = generateVerifier();
+      generateChallenge(verifier).then(function(challenge) {
+        localStorage.setItem('airface_code_verifier', verifier);
+        var url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+        url.searchParams.set('client_id',             CLIENT_ID);
+        url.searchParams.set('redirect_uri',          REDIRECT_URI);
+        url.searchParams.set('response_type',         'code');
+        url.searchParams.set('scope',                 SCOPES);
+        url.searchParams.set('code_challenge',        challenge);
+        url.searchParams.set('code_challenge_method', 'S256');
+        url.searchParams.set('access_type',           'offline');
+        url.searchParams.set('prompt',                'consent');
+        window.location = url.toString();
+      });
+    });
+
+    // ── Disconnect ────────────────────────────────────────────────────────────────
+    disconnectBtn.addEventListener('click', function() {
+      window.location = 'pebblejs://close#' +
+        encodeURIComponent(JSON.stringify({ disconnect: true }));
+    });
+
+    // ── Save settings ─────────────────────────────────────────────────────────────
+    saveBtn.addEventListener('click', function() {
+      var settings = {};
+      Object.keys(DEFAULTS).forEach(function(key) {
+        var n = parseInt(fieldVal(key).value, 10);
+        settings[key] = isNaN(n) ? DEFAULTS[key] : n;
+      });
+      window.location = 'pebblejs://close#' +
+        encodeURIComponent(JSON.stringify({ settings: settings }));
+    });
+  </script>
+</body>
+</html>

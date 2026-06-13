@@ -1,0 +1,17 @@
+build/
+.lock-waf*
+.DS_Store
+shot*.png
+node_modules/
+
+# Local editor / assistant config — not project code
+CLAUDE.md
+.claude/
+.cursor/
+
+# Wrangler local cache
+.wrangler/
+
+# OAuth secrets for M2 — use config.example.js as the template
+src/pkjs/config.js
+.env
