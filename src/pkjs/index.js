@@ -3,15 +3,12 @@
 // Data flow:
 //   Google Health cloud ──HTTPS──> this file ──AppMessage/BT──> watch face
 //
-// OAuth: PKCE + Cloudflare Worker proxy (holds client secret).
-// Tokens persist in localStorage across Pebble app restarts.
+// OAuth: PKCE. Each user supplies their own Google Cloud CLIENT_ID + CLIENT_SECRET
+// via the config page. Token exchange and refresh happen directly against Google —
+// no proxy server required.
 
 // ── Config ────────────────────────────────────────────────────────────────────
-// Worker URL is written to localStorage by the watchface settings page so it
-// never appears in committed source. Override here only for local testing.
 var CONFIG_URL  = 'https://airfaceapp.github.io/config.html';
-var WORKER_URL  = localStorage.getItem('airface_worker_url') ||
-                  'https://airface-worker.james-m-brock.workers.dev';
 var HEALTH_BASE = 'https://health.googleapis.com/v4';
 
 // ── Token storage ─────────────────────────────────────────────────────────────
@@ -23,6 +20,12 @@ if (DEV_REFRESH_TOKEN) localStorage.setItem('airface_refresh_token', DEV_REFRESH
 
 function getRefreshToken()  { return localStorage.getItem('airface_refresh_token'); }
 function setRefreshToken(t) { localStorage.setItem('airface_refresh_token', t); }
+function getClientId()     { return localStorage.getItem('airface_client_id') || ''; }
+function getClientSecret() { return localStorage.getItem('airface_client_secret') || ''; }
+function setClientCreds(id, secret) {
+  localStorage.setItem('airface_client_id', id);
+  localStorage.setItem('airface_client_secret', secret);
+}
 function clearTokens() {
   localStorage.removeItem('airface_refresh_token');
   localStorage.removeItem('airface_access_token');
@@ -79,12 +82,19 @@ function getAccessToken(callback) {
   if (cached) { callback(null, cached); return; }
 
   var refreshToken = getRefreshToken();
-  if (!refreshToken) { callback(new Error('not_authorized')); return; }
-  if (!WORKER_URL)   { callback(new Error('worker_url_not_set')); return; }
+  if (!refreshToken)    { callback(new Error('not_authorized')); return; }
+  var clientId     = getClientId();
+  var clientSecret = getClientSecret();
+  if (!clientId || !clientSecret) { callback(new Error('client_creds_not_set')); return; }
+
+  var body = 'grant_type=refresh_token' +
+             '&client_id='     + encodeURIComponent(clientId) +
+             '&client_secret=' + encodeURIComponent(clientSecret) +
+             '&refresh_token=' + encodeURIComponent(refreshToken);
 
   var xhr = new XMLHttpRequest();
-  xhr.open('POST', WORKER_URL + '/refresh');
-  xhr.setRequestHeader('Content-Type', 'application/json');
+  xhr.open('POST', 'https://oauth2.googleapis.com/token');
+  xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
   xhr.onload = function() {
     try {
       var data = JSON.parse(xhr.responseText);
@@ -94,7 +104,7 @@ function getAccessToken(callback) {
     } catch (e) { callback(e); }
   };
   xhr.onerror = function() { callback(new Error('network_error')); };
-  xhr.send(JSON.stringify({ refresh_token: refreshToken }));
+  xhr.send(body);
 }
 
 // ── Google Health API v4 ──────────────────────────────────────────────────────
@@ -370,9 +380,6 @@ function fetchStats() {
 
 Pebble.addEventListener('ready', function() {
   console.log('airface PKJS ready — authorized: ' + !!getRefreshToken());
-  // Seed the worker URL into the callback page's localStorage so the
-  // callback.html can reach the worker without embedding the URL in source.
-  if (WORKER_URL) localStorage.setItem('airface_worker_url', WORKER_URL);
   fetchStats();
 });
 
@@ -384,19 +391,20 @@ Pebble.addEventListener('appmessage', function(e) {
 // refresh_token, a disconnect flag, or a settings object on close.
 Pebble.addEventListener('showConfiguration', function() {
   var s = getSettings();
-  var q = '?connected=' + (getRefreshToken() ? '1' : '0') +
-          '&stepsGoal=' + s.stepsGoal +
-          '&zoneGoal='  + s.zoneGoal +
-          '&calGoal='   + s.calGoal +
-          '&sleepGoal=' + s.sleepGoal +
-          '&units='     + s.units +
-          '&hrMode='    + s.hrMode +
-          '&updateMin=' + s.updateMin +
-          '&bgStyle='    + s.bgStyle +
-          '&timeFormat=' + s.timeFormat +
-          '&colorTheme=' + s.colorTheme +
-          '&ringStyle='  + s.ringStyle +
-          '&ringLabels=' + s.ringLabels;
+  var q = '?connected='   + (getRefreshToken() ? '1' : '0') +
+          '&clientId='    + encodeURIComponent(getClientId()) +
+          '&stepsGoal='   + s.stepsGoal +
+          '&zoneGoal='    + s.zoneGoal +
+          '&calGoal='     + s.calGoal +
+          '&sleepGoal='   + s.sleepGoal +
+          '&units='       + s.units +
+          '&hrMode='      + s.hrMode +
+          '&updateMin='   + s.updateMin +
+          '&bgStyle='     + s.bgStyle +
+          '&timeFormat='  + s.timeFormat +
+          '&colorTheme='  + s.colorTheme +
+          '&ringStyle='   + s.ringStyle +
+          '&ringLabels='  + s.ringLabels;
   Pebble.openURL(CONFIG_URL + q);
 });
 
@@ -411,6 +419,10 @@ Pebble.addEventListener('webviewclosed', function(e) {
       setRefreshToken(data.refresh_token);
       console.log('Google Health connected — fetching stats');
       fetchGoogleHealthStats();
+    }
+    if (data.clientId && data.clientSecret) {
+      setClientCreds(data.clientId, data.clientSecret);
+      console.log('Client credentials saved');
     }
     if (data.settings) {
       saveSettings(data.settings);
